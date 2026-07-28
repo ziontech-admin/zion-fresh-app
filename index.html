@@ -328,7 +328,10 @@
           <tbody id="importBody"></tbody>
         </table>
       </div>
-      <button type="button" class="submit-btn" id="confirmImportBtn" style="margin-top:14px;">Add All to Transactions</button>
+      <div style="display:flex; gap:8px; margin-top:14px; flex-wrap:wrap;">
+        <button type="button" class="submit-btn" id="confirmImportBtn" style="flex:1; min-width:200px;">Add All to Transactions</button>
+        <button type="button" id="autoAddBtn" style="flex:1; min-width:200px; padding:12px; border:1.5px solid var(--mustard); border-radius:10px; background:#fff; color:var(--green-800); font-family:inherit; font-weight:800; font-size:14px; cursor:pointer;">Auto-Add Missing Categories</button>
+      </div>
       <div class="msg" id="importConfirmMsg"></div>
     </div>
   </section>
@@ -1032,6 +1035,18 @@ function parseReceiptText(text){
   return {store, date, rows};
 }
 
+function cleanProductName(desc){
+  let clean = desc.replace(/P\/KG|PER KG|LOCAL/gi, "").trim();
+  clean = clean.toLowerCase().split(/\s+/).map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
+  return clean || "New Product";
+}
+
+function buildCategoryOptions(selectedValue){
+  return `<option value="">— choose —</option>` +
+    PRODUCTS.map(p=>`<option value="${p}" ${p===selectedValue?'selected':''}>${p}</option>`).join("") +
+    `<option value="__new__">➕ Add as new product…</option>`;
+}
+
 function renderImportReview(store, date, rows){
   const branchSel = document.getElementById('i_branch');
   branchSel.innerHTML = "";
@@ -1051,8 +1066,7 @@ function renderImportReview(store, date, rows){
       <td>${r.description}</td>
       <td>
         <select data-idx="${idx}" class="importCatSelect">
-          <option value="">— choose —</option>
-          ${PRODUCTS.map(p=>`<option value="${p}" ${p===guessedProduct?'selected':''}>${p}</option>`).join("")}
+          ${buildCategoryOptions(guessedProduct)}
         </select>
       </td>
       <td>${r.quantity} ${r.unit}</td>
@@ -1063,7 +1077,68 @@ function renderImportReview(store, date, rows){
     body.appendChild(tr);
   });
   document.getElementById('importReview').style.display = 'block';
+  attachCategorySelectHandlers();
 }
+
+function refreshAllCategorySelects(){
+  document.querySelectorAll('.importCatSelect').forEach(sel=>{
+    const current = sel.value === "__new__" ? "" : sel.value;
+    sel.innerHTML = buildCategoryOptions(current);
+  });
+}
+
+function attachCategorySelectHandlers(){
+  document.querySelectorAll('.importCatSelect').forEach(sel=>{
+    sel.addEventListener('change', ()=>{
+      if(sel.value === "__new__"){
+        const idx = parseInt(sel.dataset.idx, 10);
+        const suggested = cleanProductName(parsedRows[idx].description);
+        const name = prompt("New product category name:", suggested);
+        if(name && name.trim()){
+          const trimmed = name.trim();
+          if(!PRODUCTS.includes(trimmed)) PRODUCTS.push(trimmed);
+          refreshAllCategorySelects();
+          // re-select this row to the new product after refresh
+          document.querySelectorAll('.importCatSelect').forEach(s2=>{
+            if(s2.dataset.idx === sel.dataset.idx) s2.value = trimmed;
+          });
+        } else {
+          sel.value = "";
+        }
+      }
+    });
+  });
+}
+
+document.getElementById('autoAddBtn').addEventListener('click', ()=>{
+  const catSelects = document.querySelectorAll('.importCatSelect');
+  const includeBoxes = document.querySelectorAll('.importIncludeBox');
+  const added = [];
+  catSelects.forEach((sel, i)=>{
+    if(!includeBoxes[i].checked) return;
+    if(sel.value) return; // already has a category
+    const idx = parseInt(sel.dataset.idx, 10);
+    const name = cleanProductName(parsedRows[idx].description);
+    if(!PRODUCTS.includes(name)) PRODUCTS.push(name);
+    added.push(name);
+  });
+  refreshAllCategorySelects();
+  // re-apply values: any row that just got a fresh product now matches by name
+  catSelects.forEach((sel, i)=>{
+    if(!includeBoxes[i].checked || sel.value) return;
+    const idx = parseInt(sel.dataset.idx, 10);
+    const name = cleanProductName(parsedRows[idx].description);
+    sel.value = name;
+  });
+  const msg = document.getElementById('importConfirmMsg');
+  if(added.length){
+    msg.textContent = `Added ${added.length} new categor${added.length===1?'y':'ies'}: ${added.join(", ")}`;
+    msg.className = "msg ok";
+  } else {
+    msg.textContent = "Every included row already has a category.";
+    msg.className = "msg";
+  }
+});
 
 document.getElementById('parseBtn').addEventListener('click', async ()=>{
   const fileInput = document.getElementById('pdfInput');
