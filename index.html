@@ -358,6 +358,10 @@
       <div class="kpi expense"><div class="label">Total Expenses</div><div class="value" id="kpiExpense">KSh 0</div></div>
       <div class="kpi profit"><div class="label">Shop Profit</div><div class="value" id="kpiProfit">KSh 0</div></div>
     </div>
+    <div class="card" style="background:var(--cream); border-color:var(--mustard);">
+      <h2 style="margin-bottom:6px;">8% Swell Allowance<span class="sub">8% of Total Sales — for produce swell/wastage</span></h2>
+      <div style="font-size:22px; font-weight:900; color:var(--green-900);" id="kpiSwell">KSh 0</div>
+    </div>
     <div class="two-col">
       <div class="card">
         <h2>Sales by Product</h2>
@@ -386,6 +390,10 @@
         <div class="kpi income"><div class="label">Income</div><div class="value" id="pIncome">KSh 0</div></div>
         <div class="kpi expense"><div class="label">Expenses</div><div class="value" id="pExpense">KSh 0</div></div>
         <div class="kpi profit"><div class="label">Profit</div><div class="value" id="pProfit">KSh 0</div></div>
+      </div>
+      <div style="margin-top:10px; padding:12px 14px; background:var(--cream); border:1px solid var(--mustard); border-radius:10px; display:flex; justify-content:space-between; align-items:center;">
+        <span style="font-size:12.5px; font-weight:700; color:var(--green-800);">8% Swell Allowance (this period)</span>
+        <span style="font-size:16px; font-weight:900; color:var(--green-900);" id="pSwell">KSh 0</span>
       </div>
     </div>
     <div class="card">
@@ -928,6 +936,7 @@ function renderDashboard(){
   document.getElementById('kpiIncome').textContent = fmt(income);
   document.getElementById('kpiExpense').textContent = fmt(expense);
   document.getElementById('kpiProfit').textContent = fmt(income-expense);
+  document.getElementById('kpiSwell').textContent = fmt(income * 0.08);
 
   const byProduct = document.getElementById('byProduct'); byProduct.innerHTML="";
   PRODUCTS.forEach(p=>{
@@ -981,6 +990,7 @@ function renderPeriod(){
   document.getElementById('pIncome').textContent = fmt(income);
   document.getElementById('pExpense').textContent = fmt(expense);
   document.getElementById('pProfit').textContent = fmt(income-expense);
+  document.getElementById('pSwell').textContent = fmt(income * 0.08);
 
   const months = {};
   transactions.forEach(t=>{
