@@ -337,7 +337,10 @@
   </section>
   <section id="tab-transactions" style="display:none;">
     <div class="card">
-      <h2>All Transactions<span class="sub">Most recent first</span></h2>
+      <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:12px; flex-wrap:wrap;">
+        <h2>All Transactions<span class="sub">Most recent first</span></h2>
+        <button type="button" id="clearAllBtn" style="padding:8px 14px; border:1.5px solid var(--red); border-radius:8px; background:#fff; color:var(--red); font-family:inherit; font-weight:700; font-size:12.5px; cursor:pointer; white-space:nowrap;">Clear All Transactions</button>
+      </div>
       <div class="table-wrap">
         <table>
           <thead><tr><th>Date</th><th>Branch</th><th>Description</th><th>Category</th><th>Type</th><th>Entered By</th><th>Amount</th><th></th></tr></thead>
@@ -867,10 +870,56 @@ function renderTransactions(){
       <td><span class="type-pill ${t.type}">${t.type}</span></td>
       <td>${t.enteredBy||'—'}</td>
       <td>${fmt(t.amount)}</td>
+      <td>${isUnlocked ? `<button type="button" class="del-btn" data-id="${t.id}" title="Delete this transaction">🗑️</button>` : ''}</td>
     `;
     body.appendChild(tr);
   });
+  document.querySelectorAll('.del-btn').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      if(!confirm("Delete this transaction? This can't be undone.")) return;
+      await deleteTransactionById(btn.dataset.id);
+      await fetchTransactions();
+      renderTransactions();
+      renderDashboard();
+      renderPeriod();
+    });
+  });
 }
+
+async function deleteTransactionById(id){
+  if(!API_URL){
+    transactions = transactions.filter(t => String(t.id) !== String(id));
+    saveLocal(transactions);
+    return;
+  }
+  try{
+    await fetch(API_URL, {
+      method:"POST", headers:{"Content-Type":"text/plain"},
+      body: JSON.stringify({action:"deleteTransaction", id})
+    });
+  }catch(e){ /* non-fatal */ }
+}
+
+document.getElementById('clearAllBtn').addEventListener('click', async ()=>{
+  if(!isUnlocked){ return; }
+  if(!confirm("Delete ALL transactions? This can't be undone — only do this while testing.")) return;
+  if(!confirm("Really sure? This wipes every transaction for everyone.")) return;
+  if(!API_URL){
+    transactions = [];
+    saveLocal(transactions);
+  }else{
+    try{
+      await fetch(API_URL, {
+        method:"POST", headers:{"Content-Type":"text/plain"},
+        body: JSON.stringify({action:"clearAllTransactions"})
+      });
+    }catch(e){ /* non-fatal */ }
+  }
+  await fetchTransactions();
+  renderTransactions();
+  renderDashboard();
+  renderPeriod();
+});
 
 /* ---------- Dashboard ---------- */
 function renderDashboard(){
@@ -961,6 +1010,7 @@ if (window.pdfjsLib) {
 }
 
 let parsedRows = [];
+let currentReceiptId = "";
 
 function guessBranch(storeText){
   if(!storeText) return "";
@@ -1017,8 +1067,11 @@ async function extractTextFromPDF(file){
 function parseReceiptText(text){
   const storeMatch = text.match(/Store Name\s+([A-Za-z0-9\s]+?)\s+Address/i);
   const dateMatch = text.match(/Receipt Date:\s*(\d{1,2}\s+[A-Za-z]+\s+\d{4})/i);
+  const voucherMatch = text.match(/Receipt Voucher No:\s*([A-Za-z0-9\-]+)/i);
+  const lpoMatch = text.match(/LPO number:\s*([A-Za-z0-9\-]+)/i);
   const store = storeMatch ? storeMatch[1].trim() : "";
   const date = dateMatch ? parseDateToISO(dateMatch[1]) : todayStr();
+  const receiptId = voucherMatch ? voucherMatch[1].trim() : (lpoMatch ? lpoMatch[1].trim() : "");
 
   const rowRegex = /(\d+)\s+(\d{9,})\s+(.+?)\s+(kg|pc|pcs|bag|crate|box)\s+([\d,]+\.\d{2})\s+([\d,]+\.\d{2})\s+([\d,]+\.\d{2})/gi;
   const rows = [];
@@ -1032,7 +1085,7 @@ function parseReceiptText(text){
       amount: parseFloat(m[7].replace(/,/g,""))
     });
   }
-  return {store, date, rows};
+  return {store, date, rows, receiptId};
 }
 
 function cleanProductName(desc){
@@ -1140,6 +1193,43 @@ document.getElementById('autoAddBtn').addEventListener('click', ()=>{
   }
 });
 
+const IMPORTED_RECEIPTS_LOCAL_KEY = "zionfresh_imported_receipts";
+
+function loadLocalImportedReceipts(){
+  try{ return JSON.parse(localStorage.getItem(IMPORTED_RECEIPTS_LOCAL_KEY) || "{}"); }catch(e){ return {}; }
+}
+function saveLocalImportedReceipts(obj){ localStorage.setItem(IMPORTED_RECEIPTS_LOCAL_KEY, JSON.stringify(obj)); }
+
+async function checkReceiptImported(receiptId){
+  if(!API_URL){
+    const local = loadLocalImportedReceipts();
+    if(local[receiptId]) return {imported:true, importedOn: local[receiptId].date, importedBy: local[receiptId].by};
+    return {imported:false};
+  }
+  try{
+    const res = await fetch(API_URL + "?action=checkReceipt&receiptId=" + encodeURIComponent(receiptId));
+    return await res.json();
+  }catch(e){
+    return {imported:false};
+  }
+}
+
+async function markReceiptImported(receiptId){
+  if(!receiptId) return;
+  if(!API_URL){
+    const local = loadLocalImportedReceipts();
+    local[receiptId] = {date: todayStr(), by: currentEmployee ? currentEmployee.name : ""};
+    saveLocalImportedReceipts(local);
+    return;
+  }
+  try{
+    await fetch(API_URL, {
+      method:"POST", headers:{"Content-Type":"text/plain"},
+      body: JSON.stringify({action:"markReceipt", receiptId, importedBy: currentEmployee ? currentEmployee.name : ""})
+    });
+  }catch(e){ /* non-fatal */ }
+}
+
 document.getElementById('parseBtn').addEventListener('click', async ()=>{
   const fileInput = document.getElementById('pdfInput');
   const msg = document.getElementById('importMsg');
@@ -1152,11 +1242,30 @@ document.getElementById('parseBtn').addEventListener('click', async ()=>{
   msg.textContent = "Reading PDF…"; msg.className = "msg";
   try{
     const text = await extractTextFromPDF(fileInput.files[0]);
-    const {store, date, rows} = parseReceiptText(text);
+    const {store, date, rows, receiptId} = parseReceiptText(text);
     if(rows.length === 0){
       msg.textContent = "Couldn't find any product lines in this PDF — the layout may differ from what we expected."; msg.className = "msg err";
       return;
     }
+
+    currentReceiptId = receiptId;
+    if(receiptId){
+      msg.textContent = "Checking whether this receipt was already imported…"; msg.className = "msg";
+      const check = await checkReceiptImported(receiptId);
+      if(check.imported){
+        const proceed = confirm(
+          `This receipt (${receiptId}) looks like it was already imported` +
+          (check.importedOn ? ` on ${check.importedOn}` : "") +
+          (check.importedBy ? ` by ${check.importedBy}` : "") +
+          `.\n\nImport it again anyway?`
+        );
+        if(!proceed){
+          msg.textContent = "Import cancelled — this receipt was already added."; msg.className = "msg err";
+          return;
+        }
+      }
+    }
+
     renderImportReview(store, date, rows);
     msg.textContent = `Found ${rows.length} line item(s)${store ? " for store: " + store : ""}. Review below before saving.`;
     msg.className = "msg ok";
@@ -1203,6 +1312,7 @@ document.getElementById('confirmImportBtn').addEventListener('click', async ()=>
   for(const entry of toImport){
     await addTransaction(entry);
   }
+  await markReceiptImported(currentReceiptId);
   msg.textContent = `Saved ${toImport.length} transaction(s) ✓`; msg.className = "msg ok";
   renderTransactions();
   renderDashboard();
