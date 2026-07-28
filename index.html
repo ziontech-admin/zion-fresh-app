@@ -293,6 +293,10 @@
             <input type="number" id="f_amount" min="0" step="0.01" placeholder="0.00" required>
           </div>
         </div>
+        <div class="field" id="quantityField">
+          <label>Quantity (kg)</label>
+          <input type="number" id="f_quantity" min="0" step="0.01" placeholder="e.g. 29.5">
+        </div>
         <button type="submit" class="submit-btn" id="submitBtn">Save Transaction</button>
         <div class="msg" id="formMsg"></div>
       </form>
@@ -392,7 +396,7 @@
     <div class="two-col">
       <div class="card">
         <h2>Product Ranking<span class="sub">All products, highest sales first</span></h2>
-        <div class="table-wrap"><table><thead><tr><th>#</th><th>Product</th><th>Total Sales</th></tr></thead><tbody id="topProductBody"></tbody></table></div>
+        <div class="table-wrap"><table><thead><tr><th>#</th><th>Product</th><th>Kg Sold</th><th>Total Sales</th></tr></thead><tbody id="topProductBody"></tbody></table></div>
       </div>
       <div class="card">
         <h2>Store Ranking<span class="sub">All branches, highest sales first</span></h2>
@@ -782,6 +786,7 @@ function refreshCategoryOptions(){
   const list = currentType === "Income" ? PRODUCTS : EXPENSE_CATS;
   list.forEach(p=>{ const o=document.createElement('option'); o.value=p; o.textContent=p; cat.appendChild(o); });
   document.getElementById('branchField').style.display = currentType === "Income" ? "block" : "none";
+  document.getElementById('quantityField').style.display = currentType === "Income" ? "block" : "none";
 }
 document.getElementById('btnIncome').addEventListener('click', ()=>{
   currentType='Income';
@@ -865,6 +870,7 @@ document.getElementById('entryForm').addEventListener('submit', async (e)=>{
     category: document.getElementById('f_category').value,
     type: currentType,
     amount: parseFloat(document.getElementById('f_amount').value || 0),
+    quantity: currentType === "Income" ? parseFloat(document.getElementById('f_quantity').value || 0) : 0,
     enteredBy: currentEmployee ? currentEmployee.name : ""
   };
   if(!entry.date || !entry.amount){
@@ -877,6 +883,7 @@ document.getElementById('entryForm').addEventListener('submit', async (e)=>{
     msg.textContent = "Saved ✓"; msg.className="msg ok";
     document.getElementById('f_desc').value = "";
     document.getElementById('f_amount').value = "";
+    document.getElementById('f_quantity').value = "";
     setTimeout(()=>{ msg.textContent=""; }, 2000);
   }else{
     msg.textContent = "Couldn't save — check your connection."; msg.className="msg err";
@@ -992,10 +999,14 @@ function renderDashboard(){
 
 /* ---------- Top Performers ---------- */
 function renderTopPerformers(){
-  const productTotals = PRODUCTS.map(p => ({
-    name: p,
-    total: transactions.filter(t=>t.type==="Income" && t.category===p).reduce((s,t)=>s+Number(t.amount||0),0)
-  })).filter(x => x.total > 0).sort((a,b)=> b.total - a.total);
+  const productTotals = PRODUCTS.map(p => {
+    const rows = transactions.filter(t=>t.type==="Income" && t.category===p);
+    return {
+      name: p,
+      total: rows.reduce((s,t)=>s+Number(t.amount||0),0),
+      kg: rows.reduce((s,t)=>s+Number(t.quantity||0),0)
+    };
+  }).filter(x => x.total > 0).sort((a,b)=> b.total - a.total);
 
   const branchTotals = BRANCHES.map(b => ({
     name: b,
@@ -1010,11 +1021,12 @@ function renderTopPerformers(){
   const productBody = document.getElementById('topProductBody');
   productBody.innerHTML = "";
   if(productTotals.length === 0){
-    productBody.innerHTML = `<tr><td colspan="3" class="empty-state">No sales recorded yet</td></tr>`;
+    productBody.innerHTML = `<tr><td colspan="4" class="empty-state">No sales recorded yet</td></tr>`;
   }else{
     productTotals.forEach((p, i)=>{
       const tr = document.createElement('tr');
-      tr.innerHTML = `<td>${i===0 ? '🏆 1' : i+1}</td><td>${p.name}</td><td>${fmt(p.total)}</td>`;
+      const kgText = p.kg > 0 ? `${p.kg.toLocaleString('en-KE', {maximumFractionDigits:2})} kg` : '—';
+      tr.innerHTML = `<td>${i===0 ? '🏆 1' : i+1}</td><td>${p.name}</td><td>${kgText}</td><td>${fmt(p.total)}</td>`;
       productBody.appendChild(tr);
     });
   }
@@ -1371,6 +1383,7 @@ document.getElementById('confirmImportBtn').addEventListener('click', async ()=>
         date, branch,
         description: `${r.description} — ${r.quantity}${r.unit} @ ${fmt(r.unitPrice)}/${r.unit}`,
         category, type: "Income", amount: r.amount,
+        quantity: r.unit.toLowerCase() === "kg" ? r.quantity : 0,
         enteredBy: currentEmployee ? currentEmployee.name : ""
       });
     }
