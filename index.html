@@ -385,21 +385,29 @@
 
   <!-- TOP PERFORMERS -->
   <section id="tab-topperformers" style="display:none;">
+    <div class="card">
+      <h2>Custom Date Range<span class="sub">Leave blank for all-time, or set a range to see top sellers for a specific week/month/period</span></h2>
+      <div class="grid2">
+        <div class="field"><label>Start Date</label><input type="date" id="tp_start"></div>
+        <div class="field"><label>End Date</label><input type="date" id="tp_end"></div>
+      </div>
+      <button type="button" id="tpClearRangeBtn" style="padding:8px 14px; border:1.5px solid var(--border); border-radius:8px; background:#fff; color:var(--grey); font-family:inherit; font-weight:700; font-size:12.5px; cursor:pointer;">Clear (show all-time)</button>
+    </div>
     <div class="card" style="background:linear-gradient(135deg, var(--mustard-light), var(--mustard)); border-color:var(--mustard);">
-      <h2 style="color:var(--green-900);">🏆 Best Seller<span class="sub" style="color:var(--green-800);">Highest-selling product overall</span></h2>
+      <h2 style="color:var(--green-900);">🏆 Best Seller<span class="sub" style="color:var(--green-800);">Highest-selling product in this period</span></h2>
       <div id="topProductHighlight" style="font-size:24px; font-weight:900; color:var(--green-900);">—</div>
     </div>
     <div class="card" style="background:linear-gradient(135deg, var(--mustard-light), var(--mustard)); border-color:var(--mustard);">
-      <h2 style="color:var(--green-900);">🏆 Top Store<span class="sub" style="color:var(--green-800);">Highest-selling branch overall</span></h2>
+      <h2 style="color:var(--green-900);">🏆 Top Store<span class="sub" style="color:var(--green-800);">Highest-selling branch in this period</span></h2>
       <div id="topBranchHighlight" style="font-size:24px; font-weight:900; color:var(--green-900);">—</div>
     </div>
     <div class="two-col">
       <div class="card">
-        <h2>Product Ranking<span class="sub">All products, highest sales first</span></h2>
+        <h2>Product Ranking<span class="sub">Highest sales first</span></h2>
         <div class="table-wrap"><table><thead><tr><th>#</th><th>Product</th><th>Kg Sold</th><th>Total Sales</th></tr></thead><tbody id="topProductBody"></tbody></table></div>
       </div>
       <div class="card">
-        <h2>Store Ranking<span class="sub">All branches, highest sales first</span></h2>
+        <h2>Store Ranking<span class="sub">Highest sales first</span></h2>
         <div class="table-wrap"><table><thead><tr><th>#</th><th>Branch</th><th>Total Sales</th></tr></thead><tbody id="topBranchBody"></tbody></table></div>
       </div>
     </div>
@@ -998,9 +1006,21 @@ function renderDashboard(){
 }
 
 /* ---------- Top Performers ---------- */
+document.getElementById('tp_start').addEventListener('change', renderTopPerformers);
+document.getElementById('tp_end').addEventListener('change', renderTopPerformers);
+document.getElementById('tpClearRangeBtn').addEventListener('click', ()=>{
+  document.getElementById('tp_start').value = "";
+  document.getElementById('tp_end').value = "";
+  renderTopPerformers();
+});
+
 function renderTopPerformers(){
+  const start = document.getElementById('tp_start').value;
+  const end = document.getElementById('tp_end').value;
+  const filtered = transactions.filter(t => (!start || t.date >= start) && (!end || t.date <= end));
+
   const productTotals = PRODUCTS.map(p => {
-    const rows = transactions.filter(t=>t.type==="Income" && t.category===p);
+    const rows = filtered.filter(t=>t.type==="Income" && t.category===p);
     return {
       name: p,
       total: rows.reduce((s,t)=>s+Number(t.amount||0),0),
@@ -1010,7 +1030,7 @@ function renderTopPerformers(){
 
   const branchTotals = BRANCHES.map(b => ({
     name: b,
-    total: transactions.filter(t=>t.type==="Income" && t.branch===b).reduce((s,t)=>s+Number(t.amount||0),0)
+    total: filtered.filter(t=>t.type==="Income" && t.branch===b).reduce((s,t)=>s+Number(t.amount||0),0)
   })).filter(x => x.total > 0).sort((a,b)=> b.total - a.total);
 
   const productHighlight = document.getElementById('topProductHighlight');
