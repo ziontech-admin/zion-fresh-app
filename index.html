@@ -6,6 +6,7 @@
 <title>Zion Fresh — Sales &amp; Profit Tracker</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;700;900&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <style>
   :root{
     --green-900:#0F3D22;
@@ -183,6 +184,7 @@
   </div>
   <nav id="tabs">
     <button data-tab="add" class="active">Add Entry</button>
+    <button data-tab="import">Import Receipt</button>
     <button data-tab="transactions" class="owner-tab" style="display:none;">Transactions</button>
     <button data-tab="dashboard" class="owner-tab" style="display:none;">Dashboard</button>
     <button data-tab="period" class="owner-tab" style="display:none;">Weekly / Monthly</button>
@@ -296,7 +298,40 @@
     </div>
   </section>
 
-  <!-- TRANSACTIONS -->
+  <!-- IMPORT RECEIPT -->
+  <section id="tab-import" style="display:none;">
+    <div class="card">
+      <h2>Import a Sales Receipt (PDF)<span class="sub">Upload a Naivas Goods Received Note — we'll pull out the store, date, and every product line</span></h2>
+      <div class="field">
+        <label>Receipt PDF</label>
+        <input type="file" id="pdfInput" accept="application/pdf">
+      </div>
+      <button type="button" class="submit-btn" id="parseBtn">Extract Data</button>
+      <div class="msg" id="importMsg"></div>
+    </div>
+
+    <div class="card" id="importReview" style="display:none;">
+      <h2>Review Before Saving<span class="sub">Check the store, date, and each line — fix anything that looks off</span></h2>
+      <div class="grid2">
+        <div class="field">
+          <label>Branch</label>
+          <select id="i_branch"></select>
+        </div>
+        <div class="field">
+          <label>Date</label>
+          <input type="date" id="i_date">
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Item on Receipt</th><th>Product Category</th><th>Qty</th><th>Unit Price</th><th>Net Amount</th><th>Include</th></tr></thead>
+          <tbody id="importBody"></tbody>
+        </table>
+      </div>
+      <button type="button" class="submit-btn" id="confirmImportBtn" style="margin-top:14px;">Add All to Transactions</button>
+      <div class="msg" id="importConfirmMsg"></div>
+    </div>
+  </section>
   <section id="tab-transactions" style="display:none;">
     <div class="card">
       <h2>All Transactions<span class="sub">Most recent first</span></h2>
@@ -408,8 +443,8 @@ const API_URL = "https://script.google.com/macros/s/AKfycbyPhBPOxl0Mrnhyv9H8UgWr
    anytime from Account Settings inside the app — this constant is just a fallback. */
 const OWNER_PIN = "2255";
 
-const PRODUCTS = ["Tomatoes","White Potatoes","Red Onion","Green Peas","Coloured Capsicum","Green Capsicum","Passion","Broccoli","Cauliflower","Carrots","Cucumber","Courgettes","Beetroot","Celery","Leeks","Tree Tomatoes","Lemons","Red Sweet Potato","Chillies","Red Cabbage","Thorn Melon"];
-const BRANCHES = ["Naivas Kericho","Simba","Mega","Kisii","Westside","Midtown","Supercenter"];
+const PRODUCTS = ["Tomatoes","White Potatoes","Red Onion","Green Peas","Coloured Capsicum","Green Capsicum","Passion","Broccoli","Cauliflower","Carrots","Cucumber","Courgettes","Beetroot","Celery","Leeks","Tree Tomatoes","Lemons","Red Sweet Potato","Chillies","Red Cabbage","Thorn Melon","Watermelon","Okra","Fresh Orange Pixie","Limes"];
+const BRANCHES = ["Naivas Kericho","Simba","Mega","Kisii","Westside","Midtown","Supercenter","Naivas Kakamega"];
 const EXPENSE_CATS = ["Stock Purchases","Rent","Salaries","Utilities","Transport","Packaging","Other"];
 
 let currentType = "Income";
@@ -916,6 +951,193 @@ function renderPeriod(){
     });
   }
 }
+
+/* ---------- Import Receipt (PDF) ---------- */
+if (window.pdfjsLib) {
+  pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+}
+
+let parsedRows = [];
+
+function guessBranch(storeText){
+  if(!storeText) return "";
+  const needle = storeText.trim().toLowerCase();
+  // exact match first, ignoring a leading "Naivas " prefix
+  let match = BRANCHES.find(b => b.replace(/^naivas\s+/i,'').toLowerCase() === needle);
+  if(match) return match;
+  // fall back to substring match, but only on branch names longer than the noise-prone short ones
+  match = BRANCHES.find(b => {
+    const core = b.replace(/^naivas\s+/i,'').toLowerCase();
+    return core.length > 3 && (core.includes(needle) || needle.includes(core));
+  });
+  return match || "";
+}
+
+function guessProduct(itemText){
+  const clean = itemText.toUpperCase();
+  // check longest product names first so "Tree Tomatoes" wins over plain "Tomatoes"
+  const sorted = [...PRODUCTS].sort((a,b)=> b.length - a.length);
+  let match = sorted.find(p => clean.includes(p.toUpperCase()));
+  if(match) return match;
+  const words = clean.replace(/P\/KG|PER KG/g, "").trim().split(/\s+/);
+  for(const w of words){
+    match = sorted.find(p => p.toUpperCase().includes(w) && w.length > 3);
+    if(match) return match;
+  }
+  return "";
+}
+
+function parseDateToISO(dateStr){
+  // e.g. "28 Jul 2026"
+  const months = {jan:1,feb:2,mar:3,apr:4,may:5,jun:6,jul:7,aug:8,sep:9,oct:10,nov:11,dec:12};
+  const m = dateStr.trim().match(/(\d{1,2})\s+([A-Za-z]+)\s+(\d{4})/);
+  if(!m) return todayStr();
+  const day = m[1].padStart(2,"0");
+  const monthNum = months[m[2].slice(0,3).toLowerCase()];
+  if(!monthNum) return todayStr();
+  return `${m[3]}-${String(monthNum).padStart(2,"0")}-${day}`;
+}
+
+async function extractTextFromPDF(file){
+  const buffer = await file.arrayBuffer();
+  const pdf = await pdfjsLib.getDocument({data: buffer}).promise;
+  let fullText = "";
+  for(let i=1; i<=pdf.numPages; i++){
+    const page = await pdf.getPage(i);
+    const content = await page.getTextContent();
+    const pageText = content.items.map(it => it.str).join(" ");
+    fullText += pageText + "\n";
+  }
+  return fullText;
+}
+
+function parseReceiptText(text){
+  const storeMatch = text.match(/Store Name\s+([A-Za-z0-9\s]+?)\s+Address/i);
+  const dateMatch = text.match(/Receipt Date:\s*(\d{1,2}\s+[A-Za-z]+\s+\d{4})/i);
+  const store = storeMatch ? storeMatch[1].trim() : "";
+  const date = dateMatch ? parseDateToISO(dateMatch[1]) : todayStr();
+
+  const rowRegex = /(\d+)\s+(\d{9,})\s+(.+?)\s+(kg|pc|pcs|bag|crate|box)\s+([\d,]+\.\d{2})\s+([\d,]+\.\d{2})\s+([\d,]+\.\d{2})/gi;
+  const rows = [];
+  let m;
+  while((m = rowRegex.exec(text)) !== null){
+    rows.push({
+      description: m[3].trim(),
+      unit: m[4],
+      quantity: parseFloat(m[5].replace(/,/g,"")),
+      unitPrice: parseFloat(m[6].replace(/,/g,"")),
+      amount: parseFloat(m[7].replace(/,/g,""))
+    });
+  }
+  return {store, date, rows};
+}
+
+function renderImportReview(store, date, rows){
+  const branchSel = document.getElementById('i_branch');
+  branchSel.innerHTML = "";
+  BRANCHES.forEach(b=>{ const o=document.createElement('option'); o.value=b; o.textContent=b; branchSel.appendChild(o); });
+  const guessedBranch = guessBranch(store);
+  if(guessedBranch) branchSel.value = guessedBranch;
+
+  document.getElementById('i_date').value = date;
+
+  const body = document.getElementById('importBody');
+  body.innerHTML = "";
+  parsedRows = rows;
+  rows.forEach((r, idx)=>{
+    const guessedProduct = guessProduct(r.description);
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>${r.description}</td>
+      <td>
+        <select data-idx="${idx}" class="importCatSelect">
+          <option value="">— choose —</option>
+          ${PRODUCTS.map(p=>`<option value="${p}" ${p===guessedProduct?'selected':''}>${p}</option>`).join("")}
+        </select>
+      </td>
+      <td>${r.quantity} ${r.unit}</td>
+      <td>${fmt(r.unitPrice)}</td>
+      <td>${fmt(r.amount)}</td>
+      <td style="text-align:center;"><input type="checkbox" data-idx="${idx}" class="importIncludeBox" checked></td>
+    `;
+    body.appendChild(tr);
+  });
+  document.getElementById('importReview').style.display = 'block';
+}
+
+document.getElementById('parseBtn').addEventListener('click', async ()=>{
+  const fileInput = document.getElementById('pdfInput');
+  const msg = document.getElementById('importMsg');
+  if(!fileInput.files.length){
+    msg.textContent = "Choose a PDF file first."; msg.className = "msg err"; return;
+  }
+  if(!window.pdfjsLib){
+    msg.textContent = "PDF reader didn't load — check your internet connection and try again."; msg.className = "msg err"; return;
+  }
+  msg.textContent = "Reading PDF…"; msg.className = "msg";
+  try{
+    const text = await extractTextFromPDF(fileInput.files[0]);
+    const {store, date, rows} = parseReceiptText(text);
+    if(rows.length === 0){
+      msg.textContent = "Couldn't find any product lines in this PDF — the layout may differ from what we expected."; msg.className = "msg err";
+      return;
+    }
+    renderImportReview(store, date, rows);
+    msg.textContent = `Found ${rows.length} line item(s)${store ? " for store: " + store : ""}. Review below before saving.`;
+    msg.className = "msg ok";
+  }catch(e){
+    msg.textContent = "Couldn't read that PDF: " + e.message; msg.className = "msg err";
+  }
+});
+
+document.getElementById('confirmImportBtn').addEventListener('click', async ()=>{
+  const msg = document.getElementById('importConfirmMsg');
+  const branch = document.getElementById('i_branch').value;
+  const date = document.getElementById('i_date').value;
+  if(!branch || !date){
+    msg.textContent = "Choose a branch and date first."; msg.className = "msg err"; return;
+  }
+  const catSelects = document.querySelectorAll('.importCatSelect');
+  const includeBoxes = document.querySelectorAll('.importIncludeBox');
+  const toImport = [];
+  catSelects.forEach((sel, i)=>{
+    const idx = parseInt(sel.dataset.idx, 10);
+    const included = includeBoxes[i].checked;
+    const category = sel.value;
+    if(included){
+      if(!category){ return; }
+      const r = parsedRows[idx];
+      toImport.push({
+        date, branch,
+        description: `${r.description} — ${r.quantity}${r.unit} @ ${fmt(r.unitPrice)}/${r.unit}`,
+        category, type: "Income", amount: r.amount,
+        enteredBy: currentEmployee ? currentEmployee.name : ""
+      });
+    }
+  });
+  const missingCategory = Array.from(catSelects).some((sel,i) => includeBoxes[i].checked && !sel.value);
+  if(missingCategory){
+    msg.textContent = "Some included rows are missing a Product Category — please choose one for each, or untick that row.";
+    msg.className = "msg err";
+    return;
+  }
+  if(toImport.length === 0){
+    msg.textContent = "No rows selected to import."; msg.className = "msg err"; return;
+  }
+  msg.textContent = "Saving…"; msg.className = "msg";
+  for(const entry of toImport){
+    await addTransaction(entry);
+  }
+  msg.textContent = `Saved ${toImport.length} transaction(s) ✓`; msg.className = "msg ok";
+  renderTransactions();
+  renderDashboard();
+  renderPeriod();
+  setTimeout(()=>{
+    document.getElementById('importReview').style.display = 'none';
+    document.getElementById('pdfInput').value = "";
+    document.getElementById('importMsg').textContent = "";
+  }, 2000);
+});
 
 /* ---------- Init ---------- */
 async function init(){
