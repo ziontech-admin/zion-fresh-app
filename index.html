@@ -187,6 +187,7 @@
     <button data-tab="import">Import Receipt</button>
     <button data-tab="transactions" class="owner-tab" style="display:none;">Transactions</button>
     <button data-tab="dashboard" class="owner-tab" style="display:none;">Dashboard</button>
+    <button data-tab="topperformers" class="owner-tab" style="display:none;">Top Performers</button>
     <button data-tab="period" class="owner-tab" style="display:none;">Weekly / Monthly</button>
     <button data-tab="employees" class="owner-tab" style="display:none;">Employees</button>
     <button data-tab="settings" class="owner-tab" style="display:none;">Account Settings</button>
@@ -375,6 +376,28 @@
     <div class="card">
       <h2>Expenses by Category</h2>
       <div class="table-wrap"><table><thead><tr><th>Category</th><th>Total</th></tr></thead><tbody id="byExpenseCat"></tbody></table></div>
+    </div>
+  </section>
+
+  <!-- TOP PERFORMERS -->
+  <section id="tab-topperformers" style="display:none;">
+    <div class="card" style="background:linear-gradient(135deg, var(--mustard-light), var(--mustard)); border-color:var(--mustard);">
+      <h2 style="color:var(--green-900);">🏆 Best Seller<span class="sub" style="color:var(--green-800);">Highest-selling product overall</span></h2>
+      <div id="topProductHighlight" style="font-size:24px; font-weight:900; color:var(--green-900);">—</div>
+    </div>
+    <div class="card" style="background:linear-gradient(135deg, var(--mustard-light), var(--mustard)); border-color:var(--mustard);">
+      <h2 style="color:var(--green-900);">🏆 Top Store<span class="sub" style="color:var(--green-800);">Highest-selling branch overall</span></h2>
+      <div id="topBranchHighlight" style="font-size:24px; font-weight:900; color:var(--green-900);">—</div>
+    </div>
+    <div class="two-col">
+      <div class="card">
+        <h2>Product Ranking<span class="sub">All products, highest sales first</span></h2>
+        <div class="table-wrap"><table><thead><tr><th>#</th><th>Product</th><th>Total Sales</th></tr></thead><tbody id="topProductBody"></tbody></table></div>
+      </div>
+      <div class="card">
+        <h2>Store Ranking<span class="sub">All branches, highest sales first</span></h2>
+        <div class="table-wrap"><table><thead><tr><th>#</th><th>Branch</th><th>Total Sales</th></tr></thead><tbody id="topBranchBody"></tbody></table></div>
+      </div>
     </div>
   </section>
 
@@ -739,6 +762,7 @@ document.querySelectorAll('#tabs button[data-tab]').forEach(btn=>{
     document.querySelectorAll('#appShell > section').forEach(s=>s.style.display='none');
     document.getElementById('tab-'+btn.dataset.tab).style.display='block';
     if(btn.dataset.tab==='dashboard') renderDashboard();
+    if(btn.dataset.tab==='topperformers') renderTopPerformers();
     if(btn.dataset.tab==='period') renderPeriod();
     if(btn.dataset.tab==='transactions') renderTransactions();
     if(btn.dataset.tab==='employees') renderEmployees();
@@ -964,6 +988,48 @@ function renderDashboard(){
     }
   });
   if(!byCat.innerHTML) byCat.innerHTML = `<tr><td colspan="2" class="empty-state">No expenses recorded yet</td></tr>`;
+}
+
+/* ---------- Top Performers ---------- */
+function renderTopPerformers(){
+  const productTotals = PRODUCTS.map(p => ({
+    name: p,
+    total: transactions.filter(t=>t.type==="Income" && t.category===p).reduce((s,t)=>s+Number(t.amount||0),0)
+  })).filter(x => x.total > 0).sort((a,b)=> b.total - a.total);
+
+  const branchTotals = BRANCHES.map(b => ({
+    name: b,
+    total: transactions.filter(t=>t.type==="Income" && t.branch===b).reduce((s,t)=>s+Number(t.amount||0),0)
+  })).filter(x => x.total > 0).sort((a,b)=> b.total - a.total);
+
+  const productHighlight = document.getElementById('topProductHighlight');
+  const branchHighlight = document.getElementById('topBranchHighlight');
+  productHighlight.textContent = productTotals.length ? `${productTotals[0].name} — ${fmt(productTotals[0].total)}` : "No sales recorded yet";
+  branchHighlight.textContent = branchTotals.length ? `${branchTotals[0].name} — ${fmt(branchTotals[0].total)}` : "No sales recorded yet";
+
+  const productBody = document.getElementById('topProductBody');
+  productBody.innerHTML = "";
+  if(productTotals.length === 0){
+    productBody.innerHTML = `<tr><td colspan="3" class="empty-state">No sales recorded yet</td></tr>`;
+  }else{
+    productTotals.forEach((p, i)=>{
+      const tr = document.createElement('tr');
+      tr.innerHTML = `<td>${i===0 ? '🏆 1' : i+1}</td><td>${p.name}</td><td>${fmt(p.total)}</td>`;
+      productBody.appendChild(tr);
+    });
+  }
+
+  const branchBody = document.getElementById('topBranchBody');
+  branchBody.innerHTML = "";
+  if(branchTotals.length === 0){
+    branchBody.innerHTML = `<tr><td colspan="3" class="empty-state">No sales recorded yet</td></tr>`;
+  }else{
+    branchTotals.forEach((b, i)=>{
+      const tr = document.createElement('tr');
+      tr.innerHTML = `<td>${i===0 ? '🏆 1' : i+1}</td><td>${b.name}</td><td>${fmt(b.total)}</td>`;
+      branchBody.appendChild(tr);
+    });
+  }
 }
 
 /* ---------- Period summary ---------- */
